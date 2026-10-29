@@ -50,10 +50,22 @@ def main() -> None:
                      sum(CONSUMO_CARGA_ACL) AS consumo_acl_mwh,
                      sum(CONSUMO_CARGA_AJUSTADO_ACL) AS consumo_cativo_mwh,
                      sum(CONSUMO_CARGA_PONTO_CONEXAO) AS consumo_ponto_conexao_mwh
-              FROM read_parquet('{det}.tmp')
-              WHERE CNPJ_CARGA IS NOT NULL  -- 2 cargas de Distribuidor vêm sem CNPJ
+              FROM (
+                SELECT * FROM read_parquet('{det}.tmp')
+                WHERE CNPJ_CARGA IS NOT NULL  -- 2 cargas de Distribuidor vêm sem CNPJ
+                -- Carga ligada a 2 distribuidoras (ex.: 70295) vem repetida, só muda a distribuidora:
+                -- 1 linha por carga x dia x hora, senão o consumo é contado em dobro.
+                QUALIFY row_number() OVER (PARTITION BY CODIGO_CARGA, DATA, PERIODO_COMERCIALIZACAO
+                                           ORDER BY CODIGO_PERFIL_AGENTE_DISTRIBUIDORA) = 1
+              )
               GROUP BY ALL
             ) TO '{agg}' (FORMAT parquet, COMPRESSION zstd)""")
+        bruto, dedup = con.execute(f"""
+            SELECT (SELECT count(*) FROM read_parquet('{det}.tmp') WHERE CNPJ_CARGA IS NOT NULL),
+                   (SELECT count(*) FROM (SELECT DISTINCT CODIGO_CARGA, DATA, PERIODO_COMERCIALIZACAO
+                                          FROM read_parquet('{det}.tmp') WHERE CNPJ_CARGA IS NOT NULL))""").fetchone()
+        if bruto != dedup:
+            print(f"  aviso {mes}: {bruto - dedup} linhas repetidas (carga/dia/hora) removidas")
         (PQ_CCEE / f"mes={mes}.parquet.tmp").rename(det)
         print(f"ok: {mes}")
 
