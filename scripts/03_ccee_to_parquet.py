@@ -34,7 +34,8 @@ def main() -> None:
         leitura = f"""read_csv('{src}', delim=';', header=true, dateformat='%d/%m/%Y',
                     types={{{tipos}}}, compression='gzip', ignore_errors=false)"""
         con.execute(f"COPY (SELECT * FROM {leitura}) TO '{det}.tmp' (FORMAT parquet, COMPRESSION zstd)")
-        # Normaliza o CNPJ: só dígitos, 14 posições com zero à esquerda.
+        # Normaliza o CNPJ: só dígitos, 14 posições (a origem perde o zero da frente em alguns casos).
+        # Unidades: tudo em MWh. AJUSTADO = reconciliado = ACL + cativo (AJUSTADO_ACL é o cativo, apesar do nome).
         con.execute(f"""
             COPY (
               SELECT MES_REFERENCIA AS mes_referencia,
@@ -47,10 +48,10 @@ def main() -> None:
                      count(DISTINCT CODIGO_CARGA) AS qtd_cargas,
                      sum(CONSUMO_CARGA_AJUSTADO) AS consumo_ajustado_mwh,
                      sum(CONSUMO_CARGA_ACL) AS consumo_acl_mwh,
-                     sum(CONSUMO_CARGA_AJUSTADO_ACL) AS consumo_ajustado_acl_mwh,
+                     sum(CONSUMO_CARGA_AJUSTADO_ACL) AS consumo_cativo_mwh,
                      sum(CONSUMO_CARGA_PONTO_CONEXAO) AS consumo_ponto_conexao_mwh
               FROM read_parquet('{det}.tmp')
-              WHERE CNPJ_CARGA IS NOT NULL
+              WHERE CNPJ_CARGA IS NOT NULL  -- 2 cargas de Distribuidor vêm sem CNPJ
               GROUP BY ALL
             ) TO '{agg}' (FORMAT parquet, COMPRESSION zstd)""")
         (PQ_CCEE / f"mes={mes}.parquet.tmp").rename(det)

@@ -1,22 +1,22 @@
-"""Baixa o CSV de empreendimentos de geração distribuída da ANEEL para raw/aneel/."""
+"""Baixa o .parquet de empreendimentos de geração distribuída da ANEEL para raw/aneel/.
+
+Usa o .parquet (mesmo conteúdo do CSV do zip, mas sem as linhas com aspas quebradas).
+"""
 import requests
 
 from common import ANEEL_API, ANEEL_DATASET, RAW_ANEEL, download
+
+NOME = "empreendimento-geracao-distribuida.parquet"
 
 
 def main() -> None:
     r = requests.get(ANEEL_API, params={"id": ANEEL_DATASET}, timeout=60)
     r.raise_for_status()
-    recursos = r.json()["result"]["resources"]
-    csvs = [x for x in recursos if x.get("format", "").upper() == "CSV" or x["url"].lower().endswith(".csv")]
-    if not csvs:
-        raise SystemExit("Nenhum recurso CSV no dataset; recursos: " + ", ".join(x["url"] for x in recursos))
-    # Se houver vários CSVs (ex.: dicionário de dados), o de empreendimentos é o mais recente/maior; confira no log.
-    for x in csvs:
-        print("CSV:", x.get("name"), x["url"])
-    rec = csvs[0]
-    dest = RAW_ANEEL / "empreendimentos_gd.csv"
-    download(rec["url"], dest)
+    recursos = [x for x in r.json()["result"]["resources"] if x.get("name") == NOME]
+    if not recursos:
+        raise SystemExit(f"Recurso {NOME} não encontrado no dataset.")
+    dest = RAW_ANEEL / NOME
+    download(recursos[0]["url"], dest, min_bytes=1_000_000)
     print(f"ok: {dest} ({dest.stat().st_size / 1e6:.0f} MB)")
 
 

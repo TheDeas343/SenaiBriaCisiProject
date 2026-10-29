@@ -18,10 +18,10 @@ def listar_recursos() -> list[dict]:
     recursos = r.json()["result"]["resources"]
     saida = []
     for rec in recursos:
-        # O mês (AAAAMM) costuma estar no nome/descrição do recurso; confira com --listar.
-        texto = f"{rec.get('name', '')} {rec.get('description', '')} {rec.get('url', '')}"
-        m = re.search(r"(20\d{2})[-_/ ]?(0[1-9]|1[0-2])", texto)
-        saida.append({"mes": f"{m.group(1)}{m.group(2)}" if m else None, "url": rec["url"], "nome": rec.get("name", "")})
+        # name: consumo_horario_perfil_agente_AAAAMM. A description é o dicionário de dados (igual em todos).
+        m = re.search(r"_(20\d{2}(?:0[1-9]|1[0-2]))$", rec.get("name", ""))
+        if m and rec.get("format", "").upper() == "GZIP":
+            saida.append({"mes": m.group(1), "url": rec["url"], "nome": rec["name"]})
     return saida
 
 
@@ -38,10 +38,7 @@ def main() -> None:
             print(r["mes"], r["nome"], r["url"])
         return
 
-    sem_mes = [r for r in recursos if not r["mes"]]
-    if sem_mes:
-        print(f"AVISO: {len(sem_mes)} recursos sem mês identificado (ignorados). Use --listar.")
-    recursos = sorted((r for r in recursos if r["mes"]), key=lambda r: r["mes"], reverse=True)[: args.meses]
+    recursos = sorted(recursos, key=lambda r: r["mes"], reverse=True)[: args.meses]
 
     for r in recursos:
         dest = RAW_CCEE / f"consumo_horario_{r['mes']}.csv.gz"

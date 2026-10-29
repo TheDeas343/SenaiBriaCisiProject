@@ -50,37 +50,42 @@ with st.sidebar:
     estados = st.multiselect("Estado", sorted(df.estado.dropna().unique()))
     subs = st.multiselect("Submercado", sorted(df.submercado.dropna().unique()))
     classes = st.multiselect("Classe", sorted(df.classe_perfil_agente.dropna().unique()))
+    visao = st.radio("Agrupar por", ["CNPJ raiz (empresa)", "CNPJ (unidade)"],
+                     help="Raiz = matriz + filiais. Pelo CNPJ inteiro casam só ~3% das unidades; pela raiz ~33%.")
     gd = st.radio("Geração distribuída", ["Todos", "Com GD", "Sem GD"], horizontal=True)
-    visao = st.radio("Agrupar por", ["CNPJ (unidade)", "CNPJ raiz (empresa)"])
 
+unidade = visao.startswith("CNPJ (")
+chave = "cnpj" if unidade else "cnpj_raiz"
+# GD da unidade (mesmo CNPJ) ou da empresa toda (mesma raiz), conforme o agrupamento
+TEM, POT, QTD = (("tem_gd", "potencia_instalada_kw", "qtd_empreendimentos_gd") if unidade
+                 else ("tem_gd_raiz", "potencia_gd_raiz_kw", "qtd_gd_raiz"))
 f = df[(df.mes_referencia >= ini) & (df.mes_referencia <= fim)]
 for col, sel in (("estado", estados), ("submercado", subs), ("classe_perfil_agente", classes)):
     if sel:
         f = f[f[col].isin(sel)]
 if gd != "Todos":
-    f = f[f.tem_gd == (gd == "Com GD")]
-chave = "cnpj" if visao.startswith("CNPJ (") else "cnpj_raiz"
+    f = f[f[TEM] == (gd == "Com GD")]
 if f.empty:
     st.info("Nenhum dado para esses filtros.")
     st.stop()
 
 # ---- KPIs ----
 un = f.drop_duplicates(chave)
-pot = f.drop_duplicates("cnpj").potencia_instalada_kw.sum()
+pot = un[POT].sum()
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Consumo total (MWh)", br(f.consumo_ajustado_mwh.sum()))
-c2.metric("Empresas/unidades", br(f[chave].nunique()))
-c3.metric("% com GD", f"{br(100 * un.tem_gd.mean(), 1)}%")
+c2.metric("Empresas" if not unidade else "Unidades (CNPJ)", br(f[chave].nunique()))
+c3.metric("% com GD", f"{br(100 * un[TEM].mean(), 1)}%")
 c4.metric("Potência GD (kW)", br(pot))
 
 # ---- consumo por mês, com x sem GD ----
 esq, dir_ = st.columns([3, 2])
 with esq:
     st.subheader("Consumo mensal (MWh)")
-    m = f.groupby(["mes_referencia", "tem_gd"]).consumo_ajustado_mwh.sum().reset_index()
+    m = f.groupby(["mes_referencia", TEM]).consumo_ajustado_mwh.sum().reset_index()
     fig = go.Figure()
     for flag, nome, cor in ((False, "Sem GD", AZUL), (True, "Com GD", LARANJA)):
-        d = m[m.tem_gd == flag]
+        d = m[m[TEM] == flag]
         if len(d):
             fig.add_bar(x=d.mes_referencia, y=d.consumo_ajustado_mwh, name=nome, marker_color=cor,
                         hovertemplate="%{x}<br>" + nome + ": %{y:,.0f} MWh<extra></extra>")
@@ -98,7 +103,7 @@ with dir_:
 # ---- consumo x potência GD ----
 st.subheader("Consumo × potência de GD instalada")
 s = (f.groupby([chave, "nome_empresarial"]).agg(consumo=("consumo_ajustado_mwh", "sum"),
-     potencia=("potencia_instalada_kw", "max"), n=("qtd_empreendimentos_gd", "max")).reset_index())
+     potencia=(POT, "max"), n=(QTD, "max")).reset_index())
 s = s[s.potencia.notna()]
 fig = go.Figure(go.Scatter(x=s.consumo, y=s.potencia, mode="markers", marker=dict(color=LARANJA, size=10,
                 line=dict(color="#fcfcfb", width=2)), text=s.nome_empresarial,
@@ -109,9 +114,9 @@ st.plotly_chart(estilo(fig, 300, x_cat=False), width="stretch")
 
 # ---- tabela ----
 st.subheader("Tabela")
-tab = (f.groupby([chave, "nome_empresarial", "estado", "tem_gd"], dropna=False)
-       .agg(consumo_mwh=("consumo_ajustado_mwh", "sum"), potencia_gd_kw=("potencia_instalada_kw", "max"),
-            empreendimentos_gd=("qtd_empreendimentos_gd", "max")).reset_index()
+tab = (f.groupby([chave, "nome_empresarial", "estado", TEM], dropna=False)
+       .agg(consumo_mwh=("consumo_ajustado_mwh", "sum"), potencia_gd_kw=(POT, "max"),
+            empreendimentos_gd=(QTD, "max")).reset_index()
        .sort_values("consumo_mwh", ascending=False))
 st.dataframe(tab, width="stretch", hide_index=True, column_config={
     "consumo_mwh": st.column_config.NumberColumn("Consumo (MWh)", format="%.0f"),
