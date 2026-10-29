@@ -26,3 +26,10 @@ streamlit run app/dashboard.py
 ```
 Lê `output/consumo_x_gd_por_cnpj.parquet`; se não existir, usa dados FALSOS (`scripts/mock_data.py`) com aviso na tela.
 Filtros: período (mês), estado, submercado, classe, com/sem GD. Agrupar por CNPJ raiz (padrão) ou CNPJ usa a GD da empresa ou da unidade.
+
+## Agendamento (cron)
+`python scripts/run_all.py` roda os 5 passos. Exemplo (Mac/Linux), todo dia 5 às 03:00, `crontab -e`:
+```
+0 3 5 * * cd /CAMINHO/DO/PROJETO && .venv/bin/python scripts/run_all.py >> logs/pipeline.log 2>&1
+```
+No Windows, use o Agendador de Tarefas apontando para o mesmo comando. A máquina precisa estar ligada e na rede doméstica/escritório.
