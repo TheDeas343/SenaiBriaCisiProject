@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from mock_data import gerar  # noqa: E402
 
+MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 AZUL, LARANJA, GRID, INK = "#2a78d6", "#eb6834", "#e4e3df", "#52514e"
 PARQUET = ROOT / "output" / "consumo_x_gd_por_cnpj.parquet"
 
@@ -38,15 +40,18 @@ def br(v: float, casas: int = 0) -> str:
 
 
 df, mock = carregar()
+df["ano"] = df.mes_referencia.str[:4].astype(int)
+df["mes_num"] = df.mes_referencia.str[4:].astype(int)
+df["mes_label"] = df.mes_num.map(lambda n: MESES_PT[n - 1][:3]) + "/" + df.ano.astype(str)
 st.title("Consumo (CCEE) × Geração Distribuída (ANEEL)")
 if mock:
     st.warning("Dados FALSOS (mock). Rode o pipeline para gerar output/consumo_x_gd_por_cnpj.parquet.", icon="⚠️")
 
 # ---- filtros (sempre visíveis, na barra lateral) ----
-meses = sorted(df.mes_referencia.unique())
 with st.sidebar:
     st.header("Filtros")
-    ini, fim = st.select_slider("Período (mês)", options=meses, value=(meses[0], meses[-1]))
+    anos = st.multiselect("Ano", sorted(df.ano.unique(), reverse=True), default=sorted(df.ano.unique()))
+    meses_sel = st.multiselect("Mês", MESES_PT, default=MESES_PT, help="Tire meses para comparar períodos (ex.: só o verão).")
     estados = st.multiselect("Estado", sorted(df.estado.dropna().unique()))
     subs = st.multiselect("Submercado", sorted(df.submercado.dropna().unique()))
     classes = st.multiselect("Classe", sorted(df.classe_perfil_agente.dropna().unique()))
@@ -59,7 +64,7 @@ chave = "cnpj" if unidade else "cnpj_raiz"
 # GD da unidade (mesmo CNPJ) ou da empresa toda (mesma raiz), conforme o agrupamento
 TEM, POT, QTD = (("tem_gd", "potencia_instalada_kw", "qtd_empreendimentos_gd") if unidade
                  else ("tem_gd_raiz", "potencia_gd_raiz_kw", "qtd_gd_raiz"))
-f = df[(df.mes_referencia >= ini) & (df.mes_referencia <= fim)]
+f = df[df.ano.isin(anos) & df.mes_num.isin([MESES_PT.index(m) + 1 for m in meses_sel])]
 for col, sel in (("estado", estados), ("submercado", subs), ("classe_perfil_agente", classes)):
     if sel:
         f = f[f[col].isin(sel)]
@@ -82,14 +87,15 @@ c4.metric("Potência GD (kW)", br(pot))
 esq, dir_ = st.columns([3, 2])
 with esq:
     st.subheader("Consumo mensal (MWh)")
-    m = f.groupby(["mes_referencia", TEM]).consumo_ajustado_mwh.sum().reset_index()
+    m = f.groupby(["mes_referencia", "mes_label", TEM]).consumo_ajustado_mwh.sum().reset_index().sort_values("mes_referencia")
     fig = go.Figure()
     for flag, nome, cor in ((False, "Sem GD", AZUL), (True, "Com GD", LARANJA)):
         d = m[m[TEM] == flag]
         if len(d):
-            fig.add_bar(x=d.mes_referencia, y=d.consumo_ajustado_mwh, name=nome, marker_color=cor,
+            fig.add_bar(x=d.mes_label, y=d.consumo_ajustado_mwh, name=nome, marker_color=cor,
                         hovertemplate="%{x}<br>" + nome + ": %{y:,.0f} MWh<extra></extra>")
     fig.update_layout(barmode="stack", bargap=0.35)
+    fig.update_xaxes(categoryorder="array", categoryarray=list(m.mes_label.unique()))
     st.plotly_chart(estilo(fig), width="stretch")
 with dir_:
     st.subheader("Top 10 por consumo (MWh)")
