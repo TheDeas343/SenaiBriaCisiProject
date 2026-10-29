@@ -1,0 +1,5 @@
+raw/
+parquet/
+output/
+__pycache__/
+.venv/
