@@ -17,6 +17,7 @@ def main() -> None:
         "sum(try_cast(replace(MdaPotenciaInstaladaKW, ',', '.') AS DOUBLE))"
         if "MdaPotenciaInstaladaKW" in cols else "NULL"
     )
+    tipos = "string_agg(DISTINCT SigTipoGeracao, ', ')" if "SigTipoGeracao" in cols else "NULL"
     con.execute(f"CREATE VIEW ccee AS SELECT * FROM read_parquet('{PQ_CCEE_AGG}/*.parquet')")
     for chave, nome in (("cnpj", "por_cnpj"), ("cnpj_raiz", "por_raiz")):
         ccee_cols = (
@@ -34,11 +35,12 @@ def main() -> None:
               FROM ccee GROUP BY mes_referencia, {chave}
             ),
             a AS (
-              SELECT {chave}, count(*) AS qtd_empreendimentos_gd, {pot} AS potencia_instalada_kw
+              SELECT {chave}, count(*) AS qtd_empreendimentos_gd, {pot} AS potencia_instalada_kw,
+                     {tipos} AS tipos_geracao_gd
               FROM read_parquet('{aneel}') GROUP BY {chave}
             )
             SELECT c.*, coalesce(a.qtd_empreendimentos_gd, 0) AS qtd_empreendimentos_gd,
-                   a.potencia_instalada_kw, a.{chave} IS NOT NULL AS tem_gd
+                   a.potencia_instalada_kw, a.tipos_geracao_gd, a.{chave} IS NOT NULL AS tem_gd
             FROM c LEFT JOIN a USING ({chave})""")
         base = OUTPUT / f"consumo_x_gd_{nome}"
         con.execute(f"COPY final TO '{base}.parquet' (FORMAT parquet, COMPRESSION zstd)")
